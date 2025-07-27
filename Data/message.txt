@@ -1,0 +1,51 @@
+high_sentiment_df = merged_df[merged_df['sentiment_score'] > 0.7]
+
+# Step 1: Preprocess ingredients and create TF-IDF and labels
+tfidf = TfidfVectorizer(max_features=1000, tokenizer=lambda x: x.split(', '))
+ingredients_tfidf = tfidf.fit_transform(high_sentiment_df['ingredients'].astype(str))
+
+mlb = MultiLabelBinarizer()
+good_for_binarized = mlb.fit_transform(high_sentiment_df['good_for'])
+
+# Train-test split (using all data for simplicity here)
+X_train, X_test, y_train, y_test = train_test_split(ingredients_tfidf.toarray(), good_for_binarized, test_size=0.2, random_state=42)
+
+# Model training
+model = OneVsRestClassifier(LogisticRegression(max_iter=1000))
+model.fit(X_train, y_train)
+
+# Step 2: Define skin concern and predict ingredients for it
+skin_concern = "dry skin"  # Change skin concern here
+skin_concern_tfidf = tfidf.transform([skin_concern])
+
+# Predict relevant ingredients for the given skin concern
+predicted_ingredients_binarized = model.predict(skin_concern_tfidf.toarray())
+predicted_ingredients = mlb.inverse_transform(predicted_ingredients_binarized)
+
+# Step 3: Isolate ingredients that match the skin concern and have high sentiment scores
+high_sentiment_df['predicted_ingredients'] = high_sentiment_df['ingredients'].apply(
+    lambda x: [ingredient.strip() for ingredient in x.split(', ')]
+)
+
+# Filter products with high sentiment (adjust the threshold if needed)
+high_sentiment_df_filtered = high_sentiment_df[high_sentiment_df['sentiment_score'] > 0.8]
+
+# Step 4: Create a dictionary to store ingredient popularity weighted by average sentiment score
+ingredient_popularity = defaultdict(list)
+
+# Collect ingredients and store their sentiment scores
+for _, row in high_sentiment_df_filtered.iterrows():
+    for ingredient in row['predicted_ingredients']:
+        if ingredient in predicted_ingredients[0]:
+            ingredient_popularity[ingredient].append(row['sentiment_score'])
+
+# Step 5: Calculate the average sentiment score for each ingredient
+ingredient_average_sentiment = {ingredient: sum(scores) / len(scores) for ingredient, scores in ingredient_popularity.items()}
+
+# Step 6: Sort ingredients by average sentiment score
+sorted_ingredients = sorted(ingredient_average_sentiment.items(), key=lambda x: x[1], reverse=True)
+
+# Display the most popular ingredients for the given skin concern
+print(f"Most popular ingredients for skin concern '{skin_concern}' based on average sentiment score:")
+for ingredient, avg_sentiment_score in sorted_ingredients:
+    print(f"{ingredient}: {avg_sentiment_score:.2f}")
